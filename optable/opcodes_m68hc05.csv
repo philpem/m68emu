@@ -172,7 +172,7 @@
 "5C","INCX","inh_x",3
 "44","LSRA","inh_a",3
 "54","LSRX","inh_x",3
-"42","MUL","inh_a",11
+"42","MUL","inh",11
 "40","NEGA","inh_a",3
 "50","NEGX","inh_x",3
 "9D","NOP","inh",2
@@ -187,10 +187,10 @@
 "9B","SEI","inh",2
 "8E","STOP","inh",2
 "83","SWI","inh",10
-"97","TAX","inh_a",2
+"97","TAX","inh",2
 "4D","TSTA","inh_a",3
 "5D","TSTX","inh_x",3
-"9F","TXA","inh_x",2
+"9F","TXA","inh",2
 "8F","WAIT","inh",2
 "24","BCC_BHS","rel",3
 "25","BCS_BLO","rel",3
