@@ -23,6 +23,7 @@ class AddressingMode(Enum):
     INHERENT_A = auto()     # special case of INHERENT with A-reg as input
     INHERENT_X = auto()     # special case of INHERENT with X-reg as input
     RELATIVE = auto()
+    ILLEGAL = auto()
 
     @staticmethod
     def from_str(_s: str):
@@ -152,7 +153,7 @@ if g_outmode == 'prototypes':
     # mnemonic prototypes
     unique_mnemonics = set([ins.root_mnemonic() for ins in op_table if ins is not None])
     for m in sorted(unique_mnemonics):
-        print(f"uint8_t {g_prefix}_{m}(const M68_CTX *ctx, const uint8_t param);")
+        print(f"uint8_t {g_prefix}_{m}(M68_CTX *ctx, const uint8_t param);")
 
     print()
     print("#endif // M68_INTERNAL_H")
@@ -162,18 +163,18 @@ if g_outmode == 'prototypes':
 if g_outmode == 'boilerplate':
     unique_mnemonics = set([ins.root_mnemonic() for ins in op_table if ins is not None])
     for m in sorted(unique_mnemonics):
-        print(f"uint8_t {g_prefix}_{m}(const M68_CTX *ctx, const uint8_t param)")
+        print(f"uint8_t {g_prefix}_{m}(M68_CTX *ctx, const uint8_t param)")
         print("{")
         print("}")
         print()
 
 # -- instruction decode table
 if g_outmode == 'optable':
-    print(f"static OPTABLE_ENT[256] {g_prefix}_optable = {{")
+    print(f"M68_OPTABLE_ENT {g_prefix}_optable[256] = {{")
     for opcode in op_table:
         if opcode is None:
             print("\t{ \"ILLEGAL\", AMODE_ILLEGAL, 0, NULL },")
         else:
             fname = f"m68op_{opcode.root_mnemonic()}"
-            print(f"\t{{ \"{opcode.mnemonic}\", {opcode.addressing_mode}, {opcode.cycles}, &{fname} }},")
+            print(f"\t{{ \"{opcode.mnemonic}\", {opcode.addressing_mode.to_c_amode()}, {opcode.cycles}, &{fname} }},")
     print("};")
