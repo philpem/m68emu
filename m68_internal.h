@@ -25,7 +25,7 @@ typedef struct {
 	char *			mnem;		/* instruction mnemonic */
 	M68_AMODE		amode;		/* addressing mode */
 	uint8_t			cycles;		/* number of cycles to execute */
-	uint8_t (*opfunc)(M68_CTX *ctx, const uint8_t param);	/* opcode exec function */
+	uint8_t (*opfunc)(M68_CTX *ctx, const uint8_t opcode, const uint8_t param);	/* opcode exec function */
 } M68_OPTABLE_ENT;
 
 
