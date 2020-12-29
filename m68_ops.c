@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,15 +12,47 @@ static uint8_t m68op_BRA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
  ****************************************************************************/
 
 /**
+ * Carry flag calculation method selection.
+ *
+ * Instructions calculate the carry flag state in different ways:
+ *
+ *   * ADC, ADD: (A7 && M7) || (M7 && !R7) || (!R7 && A7)
+ *   * ASL, LSL, ROL: b7
+ *   * ASR, LSR, ROR: b0
+ *   * BRCLR, BRSET: Mn
+ *   * CLC, MUL: 0
+ *   * NEG: R != 0
+ *   * CMP, CPX*, SBC: (!A7 && M7) || (M7 && R7) || (R7 && !A7)
+ *     (* CPX: substitute X7 in place of A7)
+ *
+ * The shift and negation instructions handle carry themselves.
+ * This means update_flags() only needs to implement Add and Subtract carry
+ * logic.
+ *
+ * CARRY_ADD: Addition carry
+ * CARRY_SUB: Subtraction carry
+ * CARRY_UNDEFINED: Raise an assertion failure if this is ever encountered
+ *
+ * We could in theory have CARRY_CLEAR and CARRY_SET in here, but I think it's
+ * preferable to have an explicit force_flags() call for the carry instead of
+ * hiding carry set/clear inside this call.
+ */
+typedef enum {
+	CARRY_ADD,
+	CARRY_SUB,
+	CARRY_UNDEFINED
+} M68_CARRY_TYPE;
+
+/**
  * Update the CCR flag bits after an arithmetic operation.
  *
  * @param	ctx			Emulation context
  * @param	ccr_bits	CCR bit map (OR of M68_CCR_x constants)
- * @param	a			Accumulator initial value
+ * @param	a			Accumulator initial value (or X-register for CPX)
  * @param	m			Operation parameter
  * @param	r			Operation result
  */
-static inline void update_flags(M68_CTX *ctx, const uint8_t ccr_bits, const uint8_t a, const uint8_t m, const uint8_t r)
+static inline void update_flags(M68_CTX *ctx, const uint8_t ccr_bits, const uint8_t a, const uint8_t m, const uint8_t r, const M68_CARRY_TYPE carryMode)
 {
 	// Half Carry
 	if (ccr_bits & M68_CCR_H) {
@@ -53,14 +86,35 @@ static inline void update_flags(M68_CTX *ctx, const uint8_t ccr_bits, const uint
 	// Carry
 	// TODO:  Carry is calculated in different ways depending on instruction. Implement the different modes.
 	if (ccr_bits & M68_CCR_C) {
-		if (( (a & 0x80) &&  (m & 0x80)) ||
-				( (m & 0x80) && !(r & 0x80)) ||
-				(!(r & 0x80) &&  (a & 0x80))) {
+		bool newCarry;
+		switch (carryMode) {
+			case CARRY_ADD:
+				newCarry =
+					(( (a & 0x80) &&  (m & 0x80)) ||
+					 ( (m & 0x80) && !(r & 0x80)) ||
+					 (!(r & 0x80) &&  (a & 0x80)));
+				break;
+
+			case CARRY_SUB:
+				newCarry =
+					((!(a & 0x80) &&  (m & 0x80)) ||
+					 ( (m & 0x80) &&  (r & 0x80)) ||
+					 ( (r & 0x80) && !(a & 0x80)));
+				break;
+
+			default:
+				assert(0);
+		}
+
+		if (newCarry) {
 			ctx->reg_ccr |= M68_CCR_C;
 		} else {
 			ctx->reg_ccr &= ~M68_CCR_C;
 		}
 	}
+
+	// Force CCR top 3 bits to 1
+	ctx->reg_ccr |= 0xE0;
 }
 
 /**
@@ -77,6 +131,9 @@ static inline void force_flags(M68_CTX *ctx, const uint8_t ccr_bits, const bool 
 	} else {
 		ctx->reg_ccr &= ~ccr_bits;
 	}
+
+	// Force CCR top 3 bits to 1
+	ctx->reg_ccr |= 0xE0;
 }
 
 /**
@@ -99,18 +156,18 @@ static inline bool get_flag(M68_CTX *ctx, const uint8_t ccr_bit)
 static inline void push_byte(M68_CTX *ctx, const uint8_t value)
 {
 	ctx->write_mem(ctx, ctx->reg_sp, value);
-	ctx->reg_sp = ((ctx->reg_sp - 1) & ctx->sp_mask) | ctx->sp_fixed;
+	ctx->reg_sp = ((ctx->reg_sp - 1) & ctx->sp_and) | ctx->sp_or;
 }
 
 /**
  * Pop a byte off of the stack
  *
  * @param	ctx			Emulation context
- * @param	value		Byte to PUSH
+ * @return	Byte popped off of the stack
  */
-static inline uint8_t pop_byte(M68_CTX *ctx, const uint8_t value)
+static inline uint8_t pop_byte(M68_CTX *ctx)
 {
-	ctx->reg_sp = ((ctx->reg_sp + 1) & ctx->sp_mask) | ctx->sp_fixed;
+	ctx->reg_sp = ((ctx->reg_sp + 1) & ctx->sp_and) | ctx->sp_or;
 	return ctx->read_mem(ctx, ctx->reg_sp);
 }
 
@@ -136,6 +193,9 @@ static inline uint8_t pop_byte(M68_CTX *ctx, const uint8_t value)
  *       - The opfunc return value is written back to the memory location.
  *       - e.g. LSR, ASL
  *
+ * When the opfunc is entered, the PC will point to the next instruction. This
+ * is to make sure the opfunc doesn't need to worry about correcting pushed
+ * return addresses -- which would require a case for every opcode.
  */
 
 
@@ -144,7 +204,7 @@ static uint8_t m68op_ADC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = ctx->reg_acc + param + (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
 
-	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_ADD);
 	ctx->reg_acc = result;
 
 	// ACC is always the affected register
@@ -156,7 +216,7 @@ static uint8_t m68op_ADD(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = ctx->reg_acc + param;
 
-	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_ADD);
 	ctx->reg_acc = result;
 
 	// ACC is always the affected register
@@ -168,7 +228,7 @@ static uint8_t m68op_AND(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = ctx->reg_acc & param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 	ctx->reg_acc = result;
 
 	// ACC is always the affected register
@@ -178,9 +238,9 @@ static uint8_t m68op_AND(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 /// ASL: Arithmetic shift left (same as LSL)
 static uint8_t m68op_ASL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
-	uint16_t result = (param >> 1) & 0xFF;
+	uint16_t result = (param << 1) & 0xFE;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_C, param & 0x80);
 
 	// Result is written back to the source (in-place)
@@ -192,7 +252,7 @@ static uint8_t m68op_ASR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = (param >> 1) | (param & 0x80);
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_C, param & 1);
 
 	// Result is written back to the source (in-place)
@@ -263,7 +323,7 @@ static uint8_t m68op_BIT(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = ctx->reg_acc & param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 
 	// Don't change the memory or the accumulator
 	return param;
@@ -319,6 +379,9 @@ static uint8_t m68op_BRCLR(M68_CTX *ctx, const uint8_t opcode, const uint8_t par
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
 
+	// Carry flag is set to the bit state
+	force_flags(ctx, M68_CCR_C, param & (1 << bitnum) ? 1 : 0);
+
 	return !(param & (1 << bitnum));
 }
 
@@ -333,6 +396,9 @@ static uint8_t m68op_BRSET(M68_CTX *ctx, const uint8_t opcode, const uint8_t par
 {
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
+
+	// Carry flag is set to the bit state
+	force_flags(ctx, M68_CCR_C, param & (1 << bitnum) ? 1 : 0);
 
 	return (param & (1 << bitnum));
 }
@@ -362,25 +428,29 @@ static uint8_t m68op_BSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_CLC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	force_flags(ctx, M68_CCR_C, 0);
+	return 0;	// inherent
 }
 
 /// CLI: Clear interrupt mask
 static uint8_t m68op_CLI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	force_flags(ctx, M68_CCR_I, 0);
+	return 0;	// inherent
 }
 
 /// CLR: Clear accumulator, X or register
 static uint8_t m68op_CLR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
-	return 0;
+	force_flags(ctx, M68_CCR_N, 0);
+	force_flags(ctx, M68_CCR_Z, 1);
+	return 0;	// inherent
 }
 
 /// CMP: Compare accumulator with memory
 static uint8_t m68op_CMP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = ctx->reg_acc - param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
 
 	// CMP affects flags only, not the parameter or accumulator
 	return param;
@@ -390,7 +460,8 @@ static uint8_t m68op_CMP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_COM(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = ~param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, 1);
 
 	return result;
 }
@@ -399,7 +470,7 @@ static uint8_t m68op_COM(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_CPX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = ctx->reg_x - param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_x, param, result, CARRY_SUB);
 
 	// CPX affects flags only, not the parameter or accumulator
 	return param;
@@ -409,7 +480,7 @@ static uint8_t m68op_CPX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_DEC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = param - 1;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 
 	return result;
 }
@@ -418,7 +489,7 @@ static uint8_t m68op_DEC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_EOR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = ctx->reg_acc ^ param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 
 	return result;
 }
@@ -427,7 +498,7 @@ static uint8_t m68op_EOR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_INC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	uint8_t result = param + 1;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 
 	return result;
 }
@@ -454,7 +525,7 @@ static uint8_t m68op_JSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_LDA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	ctx->reg_acc = param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param, CARRY_UNDEFINED);
 	// input parameter is unaffected
 	return param;
 }
@@ -463,7 +534,7 @@ static uint8_t m68op_LDA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_LDX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	ctx->reg_x = param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param, CARRY_UNDEFINED);
 	// input parameter is unaffected
 	return param;
 }
@@ -473,7 +544,7 @@ static uint8_t m68op_LSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = (param >> 1);
 
-	update_flags(ctx, M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_N, 0);
 	force_flags(ctx, M68_CCR_C, param & 1);
 
@@ -489,7 +560,7 @@ static uint8_t m68op_MUL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	ctx->reg_x = (result >> 8) & 0xff;
 	ctx->reg_acc = result & 0xff;
 
-	force_flags(ctx, M68_CCR_H | M68_CCR_N, 0);
+	force_flags(ctx, M68_CCR_H | M68_CCR_C, 0);
 }
 
 /// NEG: Negate (2's complement)
@@ -497,8 +568,8 @@ static uint8_t m68op_NEG(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = 0 - param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
-	force_flags(ctx, M68_CCR_C, result == 0xFF);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, result != 0);
 	ctx->reg_acc = result;
 
 	// ACC is always the affected register
@@ -516,7 +587,7 @@ static uint8_t m68op_ORA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	uint16_t result = ctx->reg_acc | param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
 	ctx->reg_acc = result;
 
 	// ACC is always the affected register
@@ -526,71 +597,176 @@ static uint8_t m68op_ORA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 /// ROL: Rotate left
 static uint8_t m68op_ROL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	uint16_t result = ((param << 1) | (get_flag(ctx, M68_CCR_C) ? 1 : 0)) & 0xFF;
+
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, param & 0x80);
+
+	// Result is written back to the source (in-place)
+	return result;
 }
 
 /// ROR: Rotate right
 static uint8_t m68op_ROR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	uint16_t result = ((param >> 1) | (get_flag(ctx, M68_CCR_C) ? 0x80 : 0)) & 0xFF;
+
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, param & 1);
+
+	// Result is written back to the source (in-place)
+	return result;
 }
 
+/// RSP: Reset stack pointer
 static uint8_t m68op_RSP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	ctx->reg_sp = 0xFF;	// TODO INITIAL_SP constant?
+	return param;
 }
 
+/// RTI: Return from interrupt
 static uint8_t m68op_RTI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	// pop CCR, ACCA, X
+	ctx->reg_ccr = pop_byte(ctx);
+	ctx->reg_acc = pop_byte(ctx);
+	ctx->reg_x   = pop_byte(ctx);
+
+	// pop PCH:PCL
+	// This is split up to force instruction sequencing (ref C99, sequence points!)
+	uint16_t new_pc;
+	new_pc = (uint16_t)pop_byte(ctx) << 8;
+	new_pc |= pop_byte(ctx);
+	ctx->reg_pc = new_pc & ctx->pc_and;
+
+	return param;
 }
 
+/// RTS: Return from subroutine
 static uint8_t m68op_RTS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	// pop PCH:PCL
+	// This is split up to force instruction sequencing (ref C99, sequence points!)
+	uint16_t new_pc;
+	new_pc = (uint16_t)pop_byte(ctx) << 8;
+	new_pc |= pop_byte(ctx);
+	ctx->reg_pc = new_pc & ctx->pc_and;
+
+	return param;
 }
 
+/// SBC: Subtract with carry
 static uint8_t m68op_SBC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	uint16_t result = ctx->reg_acc - param - (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
+
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
+	ctx->reg_acc = result;
+
+	// ACC is always the affected register
+	return param;
 }
 
+/// SEC: Set carry flag
 static uint8_t m68op_SEC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	force_flags(ctx, M68_CCR_C, 1);
+	return param;	// inherent
 }
 
+/// SEI: Set interrupt mask flag (disable interrupts)
 static uint8_t m68op_SEI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	force_flags(ctx, M68_CCR_I, 1);
 }
 
+/// STA: Store accumulator
 static uint8_t m68op_STA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, ctx->reg_acc, CARRY_UNDEFINED);
+
+	return ctx->reg_acc;	// store A in {param}
 }
 
+/// STOP: Enable IRQs, stop oscillator
 static uint8_t m68op_STOP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	force_flags(ctx, M68_CCR_I, 0);
+	ctx->is_stopped = true;
+	return param; // inherent
 }
 
+/// STX: Store X register
 static uint8_t m68op_STX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_x, param, ctx->reg_x, CARRY_UNDEFINED);
+
+	return ctx->reg_acc;	// store A in {param}
 }
 
+/// SUB: Subtract
 static uint8_t m68op_SUB(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	uint16_t result = ctx->reg_acc - param;
+
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
+	ctx->reg_acc = result;
+
+	// ACC is always the affected register
+	return param;
 }
 
+/// SWI: Software Interrupt
 static uint8_t m68op_SWI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	// TODO Lift this code for use by IRQ?
+	// PC will already have been advanced by the emulation loop
+	push_byte(ctx, ctx->reg_pc & 0xFF);
+	push_byte(ctx, ctx->reg_pc >> 8);
+	push_byte(ctx, ctx->reg_x);
+	push_byte(ctx, ctx->reg_acc);
+	push_byte(ctx, ctx->reg_ccr);
+
+	// Mask further interrupts
+	force_flags(ctx, M68_CCR_I, 1);
+
+	// Vector fetch
+	uint16_t vector;
+	vector = (uint16_t)ctx->read_mem(ctx, 0xFFFC & ctx->pc_and) << 8;
+	vector |= ctx->read_mem(ctx, 0xFFFD & ctx->pc_and);
+	ctx->reg_pc = vector;
 }
 
+/// TAX: Transfer A to X
 static uint8_t m68op_TAX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	ctx->reg_x = ctx->reg_acc;
+	return param;	// inherent
 }
 
+/// TST: Test if negative or zero
 static uint8_t m68op_TST(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, 0, 0, param, CARRY_UNDEFINED);
+
+	// Contents of the tested register or memory location are left unaltered.
+	return param;
 }
 
+/// TXA: Transfer X to ACC
 static uint8_t m68op_TXA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	ctx->reg_acc = ctx->reg_x;
+	return param;	// inherent
 }
 
+/// WAIT: Wait for interrupt. Like STOP, but leaves peripherals running.
 static uint8_t m68op_WAIT(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
+	force_flags(ctx, M68_CCR_I, 0);
+	ctx->is_waiting = true;
+	return param; // inherent
 }
 
 

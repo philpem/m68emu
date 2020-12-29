@@ -5,15 +5,21 @@ typedef enum {
 	CPUTYPE_M68HC05
 } M68_CPUTYPE;
 
+/**
+ * Emulation context structure
+ */
 typedef struct M68_CTX {
-	uint8_t			reg_acc;
-	uint8_t			reg_x;
-	uint16_t		reg_sp;
-	uint16_t		reg_pc;
-	uint8_t			reg_ccr;
-	M68_CPUTYPE		cpuType;
-	bool			irq;
-	uint16_t		sp_mask, sp_fixed;		/* Stack pointer mask and fixed bits */
+	uint8_t			reg_acc;				///< Accumulator register
+	uint8_t			reg_x;					///< X-index register
+	uint16_t		reg_sp;					///< Stack pointer
+	uint16_t		reg_pc;					///< Program counter
+	uint8_t			reg_ccr;				///< Condition code register
+	M68_CPUTYPE		cpuType;				///< CPU type
+	bool			irq;					///< IRQ input state
+	uint16_t		sp_and, sp_or;			///< Stack pointer AND/OR masks
+	uint16_t		pc_and;					///< Program counter AND mask
+	bool			is_stopped;				///< True if processor is stopped
+	bool			is_waiting;				///< True if processor is WAITing
 	uint8_t (*read_mem) (const struct M68_CTX *ctx, const uint16_t addr);	/* memory read function */
 	void    (*write_mem)(const struct M68_CTX *ctx, const uint16_t addr, const uint8_t data);	/* memory write function */
 } M68_CTX;
