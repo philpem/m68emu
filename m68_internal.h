@@ -21,7 +21,7 @@ typedef enum {
 } M68_AMODE;
 
 
-typedef struct {
+typedef struct M68_OPTABLE_ENT {
 	char *			mnem;		/* instruction mnemonic */
 	M68_AMODE		amode;		/* addressing mode */
 	uint8_t			cycles;		/* number of cycles to execute */

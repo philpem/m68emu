@@ -416,7 +416,7 @@ static uint8_t m68op_BSET(M68_CTX *ctx, const uint8_t opcode, const uint8_t para
 static uint8_t m68op_BSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	// push return address onto stack
-	uint16_t ra = ctx->reg_pc;
+	uint16_t ra = ctx->pc_next;
 	push_byte(ctx, ra & 0xff);
 	push_byte(ctx, (ra >> 8) & 0xff);
 
@@ -513,7 +513,7 @@ static uint8_t m68op_JMP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 static uint8_t m68op_JSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
 {
 	// push return address onto stack
-	uint16_t ra = ctx->reg_pc;
+	uint16_t ra = ctx->pc_next;
 	push_byte(ctx, ra & 0xff);
 	push_byte(ctx, (ra >> 8) & 0xff);
 
@@ -638,7 +638,7 @@ static uint8_t m68op_RTI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	uint16_t new_pc;
 	new_pc = (uint16_t)pop_byte(ctx) << 8;
 	new_pc |= pop_byte(ctx);
-	ctx->reg_pc = new_pc & ctx->pc_and;
+	ctx->pc_next = new_pc & ctx->pc_and;
 
 	return param;
 }
@@ -651,7 +651,7 @@ static uint8_t m68op_RTS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	uint16_t new_pc;
 	new_pc = (uint16_t)pop_byte(ctx) << 8;
 	new_pc |= pop_byte(ctx);
-	ctx->reg_pc = new_pc & ctx->pc_and;
+	ctx->pc_next = new_pc & ctx->pc_and;
 
 	return param;
 }
@@ -722,8 +722,8 @@ static uint8_t m68op_SWI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 {
 	// TODO Lift this code for use by IRQ?
 	// PC will already have been advanced by the emulation loop
-	push_byte(ctx, ctx->reg_pc & 0xFF);
-	push_byte(ctx, ctx->reg_pc >> 8);
+	push_byte(ctx, ctx->pc_next & 0xFF);
+	push_byte(ctx, ctx->pc_next >> 8);
 	push_byte(ctx, ctx->reg_x);
 	push_byte(ctx, ctx->reg_acc);
 	push_byte(ctx, ctx->reg_ccr);
@@ -735,7 +735,7 @@ static uint8_t m68op_SWI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	uint16_t vector;
 	vector = (uint16_t)ctx->read_mem(ctx, 0xFFFC & ctx->pc_and) << 8;
 	vector |= ctx->read_mem(ctx, 0xFFFD & ctx->pc_and);
-	ctx->reg_pc = vector;
+	ctx->pc_next = vector;
 }
 
 /// TAX: Transfer A to X
