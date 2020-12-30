@@ -77,7 +77,7 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	}
 
 	if (ctx->trace) {
-		printf("M68 EXEC: pc %04X sp %02X opval %02X mnem '%s' amode %d cycles %d",
+		printf("M68 EXEC: pc %04X sp %02X opval %02X mnem '%s' amode %d cycles %d\n",
 				ctx->reg_pc, ctx->reg_sp, opval, opcode->mnem, opcode->amode, opcode->cycles);
 	}
 
@@ -201,7 +201,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	// Execute opcode
 	opResult = opcode->opfunc(ctx, opval, &opParam);
 	if (ctx->trace) {
-		printf("\t-> %3d (0x%02X)\n", opParam, opParam);
+		if (opResult) {
+			printf("\t-> %3d (0x%02X)\n", opParam, opParam);
+		}
 	}
 
 	// Write back result (param)
