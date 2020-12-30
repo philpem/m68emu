@@ -31,4 +31,8 @@ typedef struct {
 
 extern M68_OPTABLE_ENT m68hc05_optable[256];
 
+const uint16_t _M68_RESET_VECTOR = 0xFFFE;
+const uint16_t _M68_SWI_VECTOR   = 0xFFFC;
+const uint16_t _M68_INT_VECTOR   = 0xFFFA;
+
 #endif // M68_INTERNAL_H
