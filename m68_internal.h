@@ -31,8 +31,11 @@ typedef struct {
 
 extern M68_OPTABLE_ENT m68hc05_optable[256];
 
-const uint16_t _M68_RESET_VECTOR = 0xFFFE;
-const uint16_t _M68_SWI_VECTOR   = 0xFFFC;
-const uint16_t _M68_INT_VECTOR   = 0xFFFA;
+// M68HC vector addresses.
+static const uint16_t _M68_RESET_VECTOR = 0xFFFE;
+static const uint16_t _M68_SWI_VECTOR   = 0xFFFC;
+static const uint16_t _M68_INT_VECTOR   = 0xFFFA;
+
+// TODO - need to have an m68_int function which allows vector address to be passed at runtime
 
 #endif // M68_INTERNAL_H
