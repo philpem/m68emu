@@ -1,9 +1,18 @@
 #ifndef M68EMU_H
 #define M68EMU_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 typedef enum {
-	CPUTYPE_M68HC05
+	M68_CPU_HC05C4
 } M68_CPUTYPE;
+
+struct M68_CTX;
+
+typedef uint8_t (*M68_READMEM_F)  (const struct M68_CTX *ctx, const uint16_t addr);
+typedef void    (*M68_WRITEMEM_F) (const struct M68_CTX *ctx, const uint16_t addr, const uint8_t data);
+
 
 /**
  * Emulation context structure
@@ -20,9 +29,10 @@ typedef struct M68_CTX {
 	uint16_t		pc_and;					///< Program counter AND mask
 	bool			is_stopped;				///< True if processor is stopped
 	bool			is_waiting;				///< True if processor is WAITing
-	uint8_t (*read_mem) (const struct M68_CTX *ctx, const uint16_t addr);	/* memory read function */
-	void    (*write_mem)(const struct M68_CTX *ctx, const uint16_t addr, const uint8_t data);	/* memory write function */
+	M68_READMEM_F	read_mem;				///< Memory read callback
+	M68_WRITEMEM_F	write_mem;				///< Memory write callback
 } M68_CTX;
+
 
 /* CCR bits */
 #define		M68_CCR_H	0x10		/* Half carry */
