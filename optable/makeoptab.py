@@ -14,11 +14,16 @@ from enum import Enum, auto, unique
 class AddressingMode(Enum):
     DIRECT = auto()
     DIRECT_REL = auto()
+    DIRECT_JUMP = auto()
     EXTENDED = auto()
+    EXTENDED_JUMP = auto()
     IMMEDIATE = auto()
     INDEXED0 = auto()
+    INDEXED0_JUMP = auto()
     INDEXED1 = auto()
+    INDEXED1_JUMP = auto()
     INDEXED2 = auto()
+    INDEXED2_JUMP = auto()
     INHERENT = auto()
     INHERENT_A = auto()     # special case of INHERENT with A-reg as input
     INHERENT_X = auto()     # special case of INHERENT with X-reg as input
@@ -37,21 +42,36 @@ class AddressingMode(Enum):
         elif DIRECT_REL_N_RE.match(s):
             # Direct with relative jump offset (BRSET/BRCLR)
             return AddressingMode.DIRECT_REL
+        elif s == 'dir_jump':
+            # Direct -- is a jump
+            return AddressingMode.DIRECT_JUMP
         elif s == 'ext':
             # Extended -- instruction with 16-bit address parameter
             return AddressingMode.EXTENDED
+        elif s == 'ext_jump':
+            # Extended -- is a jump
+            return AddressingMode.EXTENDED_JUMP
         elif s == 'imm':
             # Immediate -- instruction with 8-bit immediate value parameter
             return AddressingMode.IMMEDIATE
         elif s == 'indexed0':
             # Indexed with no offset
             return AddressingMode.INDEXED0
+        elif s == 'indexed0_jump':
+            # Indexed with no offset, jump
+            return AddressingMode.INDEXED0_JUMP
         elif s == 'indexed1':
             # Indexed with 8-bit offset
             return AddressingMode.INDEXED1
+        elif s == 'indexed1_jump':
+            # Indexed with 8-bit offset, jump
+            return AddressingMode.INDEXED1_JUMP
         elif s == 'indexed2':
             # Indexed with 16-bit offset
             return AddressingMode.INDEXED2
+        elif s == 'indexed2_jump':
+            # Indexed with 16-bit offset, jump
+            return AddressingMode.INDEXED2_JUMP
         elif s == 'inh':
             # Inherent
             return AddressingMode.INHERENT

@@ -25,6 +25,7 @@ void m68_init(M68_CTX *ctx, const M68_CPUTYPE cpuType)
 	}
 
 	ctx->cpuType = cpuType;
+	ctx->trace = false;
 
 	m68_reset(ctx);
 }
@@ -75,19 +76,28 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			assert(0);
 	}
 
-	printf("OPCODE DECODE: opval %02X mnem '%s' amode %d cycles %d opfunc %p\n",
-			opval, opcode->mnem, opcode->amode, opcode->cycles, opcode->opfunc);
+	if (ctx->trace) {
+		printf("M68 EXEC: pc %04X sp %02X opval %02X mnem '%s' amode %d cycles %d",
+				ctx->reg_pc, ctx->reg_sp, opval, opcode->mnem, opcode->amode, opcode->cycles);
+	}
 
 	// Read the opcode parameter bytes, if any
 	uint8_t opParam;		// parameter
 	uint16_t dirPtr;		// direct pointer
 	uint16_t opNextPC;		// next PC (if branch or jump)
+	bool opResult;
 
 	switch(opcode->amode) {
 		case AMODE_DIRECT:
 			// Direct addressing: parameter is an address in zero page
 			dirPtr = ctx->read_mem(ctx, ctx->pc_next++);
 			opParam = ctx->read_mem(ctx, dirPtr);
+			break;
+
+		case AMODE_DIRECT_JUMP:
+			// Direct addressing, jump
+			opNextPC = ctx->read_mem(ctx, ctx->pc_next++);
+			opParam = -1;
 			break;
 
 		case AMODE_DIRECT_REL:
@@ -108,6 +118,13 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			opParam = ctx->read_mem(ctx, dirPtr);
 			break;
 
+		case AMODE_EXTENDED_JUMP:
+			// Extended addressing, jump
+			opNextPC = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) << 8;
+			opNextPC |= ctx->read_mem(ctx, ctx->pc_next++);
+			opParam = -1;
+			break;
+
 		case AMODE_IMMEDIATE:
 			// Immediate addressing: parameter is an immediate value following the opcode
 			opParam = ctx->read_mem(ctx, ctx->pc_next++);
@@ -119,10 +136,22 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			opParam = ctx->read_mem(ctx, dirPtr);
 			break;
 
+		case AMODE_INDEXED0_JUMP:
+			// Indexed jump with no offset. Take the X register as an address.
+			opNextPC = ctx->reg_x;
+			opParam = -1;
+			break;
+
 		case AMODE_INDEXED1:
 			// Indexed with 1-byte offset. Add X and offset.
 			dirPtr = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) + ctx->reg_x;
 			opParam = ctx->read_mem(ctx, dirPtr);
+			break;
+
+		case AMODE_INDEXED1_JUMP:
+			// Indexed jump with 1-byte offset. Take the X register as an address.
+			opNextPC = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) + ctx->reg_x;
+			opParam = -1;
 			break;
 
 		case AMODE_INDEXED2:
@@ -131,6 +160,14 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			dirPtr |= ctx->read_mem(ctx, ctx->pc_next++);
 			dirPtr += ctx->reg_x;
 			opParam = ctx->read_mem(ctx, dirPtr);
+			break;
+
+		case AMODE_INDEXED2_JUMP:
+			// Indexed jump with 2-byte offset. Add X and offset.
+			opNextPC = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) << 8;
+			opNextPC |= ctx->read_mem(ctx, ctx->pc_next++);
+			opNextPC += ctx->reg_x;
+			opParam = -1;
 			break;
 
 		case AMODE_INHERENT:
@@ -162,7 +199,10 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	}
 
 	// Execute opcode
-	opParam = opcode->opfunc(ctx, opval, opParam);
+	opResult = opcode->opfunc(ctx, opval, &opParam);
+	if (ctx->trace) {
+		printf("\t-> %3d (0x%02X)\n", opParam, opParam);
+	}
 
 	// Write back result (param)
 	switch(opcode->amode) {
@@ -176,9 +216,16 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			// Indexed with no offset. Take the X register as an address.
 			// Indexed with 1-byte offset. Add X and offset.
 			// Indexed with 2-byte offset. Add X and offset.
-			ctx->write_mem(ctx, dirPtr, opParam);
+			if (opResult) {
+				ctx->write_mem(ctx, dirPtr, opParam);
+			}
 			break;
 
+		case AMODE_DIRECT_JUMP:
+		case AMODE_EXTENDED_JUMP:
+		case AMODE_INDEXED0_JUMP:
+		case AMODE_INDEXED1_JUMP:
+		case AMODE_INDEXED2_JUMP:
 		case AMODE_DIRECT_REL:
 		case AMODE_RELATIVE:
 			// Direct + relative addressing: parameter is an address in zero page
@@ -201,12 +248,16 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 
 		case AMODE_INHERENT_A:
 			// Inherent addressing, affects Accumulator.
-			ctx->reg_acc = opParam;
+			if (opResult) {
+				ctx->reg_acc = opParam;
+			}
 			break;
 
 		case AMODE_INHERENT_X:
 			// Inherent addressing, affects X register.
-			ctx->reg_x = opParam;
+			if (opResult) {
+				ctx->reg_x = opParam;
+			}
 			break;
 
 		case AMODE_ILLEGAL:
@@ -215,8 +266,6 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			assert(1==2);
 			break;
 	}
-
-	// TODO Assert if an INHERENT instr returns a value?
 
 	// Return number of cycles executed
 	return opcode->cycles;

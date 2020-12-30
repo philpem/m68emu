@@ -7,11 +7,16 @@
 typedef enum {
 	AMODE_DIRECT,
 	AMODE_DIRECT_REL,
+	AMODE_DIRECT_JUMP,
 	AMODE_EXTENDED,
+	AMODE_EXTENDED_JUMP,
 	AMODE_IMMEDIATE,
 	AMODE_INDEXED0,
+	AMODE_INDEXED0_JUMP,
 	AMODE_INDEXED1,
+	AMODE_INDEXED1_JUMP,
 	AMODE_INDEXED2,
+	AMODE_INDEXED2_JUMP,
 	AMODE_INHERENT,
 	AMODE_INHERENT_A,
 	AMODE_INHERENT_X,
@@ -25,7 +30,7 @@ typedef struct M68_OPTABLE_ENT {
 	char *			mnem;		/* instruction mnemonic */
 	M68_AMODE		amode;		/* addressing mode */
 	uint8_t			cycles;		/* number of cycles to execute */
-	uint8_t (*opfunc)(M68_CTX *ctx, const uint8_t opcode, const uint8_t param);	/* opcode exec function */
+	bool (*opfunc)(M68_CTX *ctx, const uint8_t opcode, uint8_t *param);	/* opcode exec function */
 } M68_OPTABLE_ENT;
 
 

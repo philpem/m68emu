@@ -5,7 +5,6 @@
 #include "m68emu.h"
 #include "m68_internal.h"
 
-static uint8_t m68op_BRA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param);
 
 /****************************************************************************
  * HELPER FUNCTIONS
@@ -179,19 +178,11 @@ static inline uint8_t pop_byte(M68_CTX *ctx)
 /* **
  * Opcode implementation rules:
  *
- *   - Branch and jump opcodes
+ *   - Branch and jump opcodes (AMODE_RELATIVE, AMODE_*_JUMP)
  *     - Return true to take the branch.
  *     - Return false to continue execution from the next instruction.
  *   - General opcodes
- *     - Inherent and immediate addressing:
- *       - The opfunc handles all register writes. Return value is ignored.
- *       - e.g. ADC
- *     - Inherent A / Inherent X addressing:
- *       - The opfunc return value is written back to the ACC / X register
- *       - e.g. LSRA, ASRX
- *     - Direct, Extended and Indexed addressing
- *       - The opfunc return value is written back to the memory location.
- *       - e.g. LSR, ASL
+ *     - Return 'true' to write the new value of 'param' back to the source.
  *
  * When the opfunc is entered, the PC will point to the next instruction. This
  * is to make sure the opfunc doesn't need to worry about correcting pushed
@@ -200,106 +191,111 @@ static inline uint8_t pop_byte(M68_CTX *ctx)
 
 
 /// ADC: Add with carry
-static uint8_t m68op_ADC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ADC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc + param + (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
+	uint16_t result = ctx->reg_acc + *param + (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
 
-	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_ADD);
+	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, *param, result, CARRY_ADD);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// ADD: Add
-static uint8_t m68op_ADD(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ADD(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc + param;
+	uint16_t result = ctx->reg_acc + *param;
 
-	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_ADD);
+	update_flags(ctx, M68_CCR_H | M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, *param, result, CARRY_ADD);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// AND: Logical AND
-static uint8_t m68op_AND(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_AND(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc & param;
+	uint16_t result = ctx->reg_acc & *param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// ASL: Arithmetic shift left (same as LSL)
-static uint8_t m68op_ASL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ASL(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = (param << 1) & 0xFE;
+	uint16_t result = (*param << 1) & 0xFE;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
-	force_flags(ctx, M68_CCR_C, param & 0x80);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, *param & 0x80);
 
 	// Result is written back to the source (in-place)
-	return result;
+	*param = result;
+	return true;
 }
 
 /// ASR: Arithmetic shift right
-static uint8_t m68op_ASR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ASR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = (param >> 1) | (param & 0x80);
+	uint16_t result = (*param >> 1) | (*param & 0x80);
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
-	force_flags(ctx, M68_CCR_C, param & 1);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, *param & 1);
 
 	// Result is written back to the source (in-place)
-	return result;
+	*param = result;
+	return true;
 }
 
 /// BCC: Branch carry clear (same as BHS)
-static uint8_t m68op_BCC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BCC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_C));
 }
 
 /// BCLR: Clear bit in memory
-static uint8_t m68op_BCLR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BCLR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
 
-	return param & ~(1 << bitnum);
+	*param &= ~(1 << bitnum);
+
+	// Result is written back to the source (in-place)
+	return true;
 }
 
 /// BCS: Branch carry set
-static uint8_t m68op_BCS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BCS(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_C));
 }
 
 /// BEQ: Branch if equal
-static uint8_t m68op_BEQ(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BEQ(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_Z));
 }
 
 /// BHCC: Branch if half-carry clear
-static uint8_t m68op_BHCC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BHCC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_H));
 }
 
 /// BHCS: Branch if half-carry set
-static uint8_t m68op_BHCS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BHCS(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_H));
 }
 
 /// BHI: Branch if higher
-static uint8_t m68op_BHI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BHI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_C) && !get_flag(ctx, M68_CCR_Z));
 }
@@ -307,113 +303,118 @@ static uint8_t m68op_BHI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 // BHS: see BCC
 
 /// BIH: Branch if /IRQ high
-static uint8_t m68op_BIH(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BIH(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (ctx->irq);
 }
 
 /// BIL: Branch if /IRQ low
-static uint8_t m68op_BIL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BIL(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!ctx->irq);
 }
 
 /// BIT: Bit test memory with accumulator
-static uint8_t m68op_BIT(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BIT(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc & param;
+	uint16_t result = ctx->reg_acc & *param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 
 	// Don't change the memory or the accumulator
-	return param;
+	return *param;
 }
 
 // BLO: see BCS
 
 /// BLS: Branch if lower or same
-static uint8_t m68op_BLS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BLS(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_C) || get_flag(ctx, M68_CCR_Z));
 }
 
 /// BNC: Branch if interrupt mask is clear
-static uint8_t m68op_BMC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BMC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_I));
 }
 
 /// BMI: Branch if minus
-static uint8_t m68op_BMI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BMI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_N));
 }
 
 /// BMS: Branch if interrupt mask is set
-static uint8_t m68op_BMS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BMS(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (get_flag(ctx, M68_CCR_I));
 }
 
 /// BNE: Branch if not equal
-static uint8_t m68op_BNE(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BNE(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_Z));
 }
 
 /// BPL: Branch if plus
-static uint8_t m68op_BPL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BPL(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return (!get_flag(ctx, M68_CCR_N));
 }
 
 /// BRA: Branch always
-static uint8_t m68op_BRA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BRA(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
+	// Always take the branch
 	return true;
 }
 
 /// BRCLR: Branch if bit clear
-static uint8_t m68op_BRCLR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BRCLR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
 
 	// Carry flag is set to the bit state
-	force_flags(ctx, M68_CCR_C, param & (1 << bitnum) ? 1 : 0);
+	force_flags(ctx, M68_CCR_C, *param & (1 << bitnum) ? 1 : 0);
 
-	return !(param & (1 << bitnum));
+	return !(*param & (1 << bitnum));
 }
 
 /// BRN: Branch never
-static uint8_t m68op_BRN(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BRN(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
+	// Don't take the branch
 	return false;
 }
 
 /// BRSET: Branch if bit set
-static uint8_t m68op_BRSET(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BRSET(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
 
 	// Carry flag is set to the bit state
-	force_flags(ctx, M68_CCR_C, param & (1 << bitnum) ? 1 : 0);
+	force_flags(ctx, M68_CCR_C, *param & (1 << bitnum) ? 1 : 0);
 
-	return (param & (1 << bitnum));
+	return (*param & (1 << bitnum));
 }
 
 /// BSET: Bit set
-static uint8_t m68op_BSET(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BSET(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// Extract the bit number from the opcode
 	uint8_t bitnum = (opcode & 0x0F) >> 1;
 
-	return param | (1 << bitnum);
+	*param |= (1 << bitnum);
+
+	// Result is written back to the source (in-place)
+	return true;
 }
 
 /// BSR: Branch to subroutine
-static uint8_t m68op_BSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_BSR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// push return address onto stack
 	uint16_t ra = ctx->pc_next;
@@ -425,92 +426,108 @@ static uint8_t m68op_BSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 }
 
 /// CLC: Clear carry
-static uint8_t m68op_CLC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_CLC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_C, 0);
-	return 0;	// inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// CLI: Clear interrupt mask
-static uint8_t m68op_CLI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_CLI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_I, 0);
-	return 0;	// inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// CLR: Clear accumulator, X or register
-static uint8_t m68op_CLR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_CLR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_N, 0);
 	force_flags(ctx, M68_CCR_Z, 1);
-	return 0;	// inherent
+
+	// Result is written back to the source (in-place)
+	*param = 0;
+	return true;
 }
 
 /// CMP: Compare accumulator with memory
-static uint8_t m68op_CMP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_CMP(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = ctx->reg_acc - param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
+	uint8_t result = ctx->reg_acc - *param;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, *param, result, CARRY_SUB);
 
 	// CMP affects flags only, not the parameter or accumulator
-	return param;
+	return false;
 }
 
 /// COM: Complement
-static uint8_t m68op_COM(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_COM(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = ~param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	uint8_t result = ~*param;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_C, 1);
 
-	return result;
+	// Result is written back to the source (in-place)
+	*param = result;
+	return true;
 }
 
 /// CPX: Compare index register with memory
-static uint8_t m68op_CPX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_CPX(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = ctx->reg_x - param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_x, param, result, CARRY_SUB);
+	uint8_t result = ctx->reg_x - *param;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_x, *param, result, CARRY_SUB);
 
 	// CPX affects flags only, not the parameter or accumulator
-	return param;
+	return false;
 }
 
 /// DEC: Decrement
-static uint8_t m68op_DEC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_DEC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = param - 1;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	uint8_t result = *param - 1;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 
-	return result;
+	// Result is written back to the source (in-place)
+	*param = result;
+	return true;
 }
 
 /// EOR: Exclusive-OR accumulator with memory
-static uint8_t m68op_EOR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_EOR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = ctx->reg_acc ^ param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	uint8_t result = ctx->reg_acc ^ *param;
 
-	return result;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
+	ctx->reg_acc = result;
+
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// INC: Increment
-static uint8_t m68op_INC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_INC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint8_t result = param + 1;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	uint8_t result = *param + 1;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 
-	return result;
+	// Result is written back to the source (in-place)
+	*param = result;
+	return true;
 }
 
 /// JMP: Long jump
-static uint8_t m68op_JMP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_JMP(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	return true;
 }
 
 /// JSR: Jump subroutine
-static uint8_t m68op_JSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_JSR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// push return address onto stack
 	uint16_t ra = ctx->pc_next;
@@ -522,38 +539,41 @@ static uint8_t m68op_JSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 }
 
 /// LDA: Load accumulator
-static uint8_t m68op_LDA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_LDA(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	ctx->reg_acc = param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param, CARRY_UNDEFINED);
-	// input parameter is unaffected
-	return param;
+	ctx->reg_acc = *param;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, *param, CARRY_UNDEFINED);
+
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// LDX: Load index
-static uint8_t m68op_LDX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_LDX(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	ctx->reg_x = param;
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, param, CARRY_UNDEFINED);
-	// input parameter is unaffected
-	return param;
+	ctx->reg_x = *param;
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, *param, CARRY_UNDEFINED);
+
+	// Don't write back, affects X and flags only
+	return false;
 }
 
 /// LSR: Logical shift right
-static uint8_t m68op_LSR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_LSR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = (param >> 1);
+	uint16_t result = (*param >> 1);
 
-	update_flags(ctx, M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_N, 0);
-	force_flags(ctx, M68_CCR_C, param & 1);
+	force_flags(ctx, M68_CCR_C, *param & 1);
 
 	// Result is written back to the source (in-place)
-	return result;
+	*param = result;
+	return true;
 }
 
 /// MUL: Multiply
-static uint8_t m68op_MUL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_MUL(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	uint16_t result = (uint16_t)ctx->reg_x * (uint16_t)ctx->reg_acc;
 
@@ -561,72 +581,80 @@ static uint8_t m68op_MUL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	ctx->reg_acc = result & 0xff;
 
 	force_flags(ctx, M68_CCR_H | M68_CCR_C, 0);
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// NEG: Negate (2's complement)
-static uint8_t m68op_NEG(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_NEG(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = 0 - param;
+	uint16_t result = 0 - *param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 	force_flags(ctx, M68_CCR_C, result != 0);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// NOP: No operation
-static uint8_t m68op_NOP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_NOP(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	return param;
+	// Do nothing
+	return false;
 }
 
 /// ORA: Inclusive-OR
-static uint8_t m68op_ORA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ORA(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc | param;
+	uint16_t result = ctx->reg_acc | *param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// ROL: Rotate left
-static uint8_t m68op_ROL(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ROL(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ((param << 1) | (get_flag(ctx, M68_CCR_C) ? 1 : 0)) & 0xFF;
+	uint16_t result = ((*param << 1) | (get_flag(ctx, M68_CCR_C) ? 1 : 0)) & 0xFF;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
-	force_flags(ctx, M68_CCR_C, param & 0x80);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, *param & 0x80);
 
 	// Result is written back to the source (in-place)
-	return result;
+	*param = result;
+	return true;
 }
 
 /// ROR: Rotate right
-static uint8_t m68op_ROR(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_ROR(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ((param >> 1) | (get_flag(ctx, M68_CCR_C) ? 0x80 : 0)) & 0xFF;
+	uint16_t result = ((*param >> 1) | (get_flag(ctx, M68_CCR_C) ? 0x80 : 0)) & 0xFF;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, result, CARRY_UNDEFINED);
-	force_flags(ctx, M68_CCR_C, param & 1);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, result, CARRY_UNDEFINED);
+	force_flags(ctx, M68_CCR_C, *param & 1);
 
 	// Result is written back to the source (in-place)
-	return result;
+	*param = result;
+	return true;
 }
 
 /// RSP: Reset stack pointer
-static uint8_t m68op_RSP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_RSP(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	ctx->reg_sp = 0xFF;	// TODO INITIAL_SP constant?
-	return param;
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// RTI: Return from interrupt
-static uint8_t m68op_RTI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_RTI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// pop CCR, ACCA, X
 	ctx->reg_ccr = pop_byte(ctx);
@@ -640,11 +668,12 @@ static uint8_t m68op_RTI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	new_pc |= pop_byte(ctx);
 	ctx->pc_next = new_pc & ctx->pc_and;
 
-	return param;
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// RTS: Return from subroutine
-static uint8_t m68op_RTS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_RTS(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// pop PCH:PCL
 	// This is split up to force instruction sequencing (ref C99, sequence points!)
@@ -653,72 +682,83 @@ static uint8_t m68op_RTS(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	new_pc |= pop_byte(ctx);
 	ctx->pc_next = new_pc & ctx->pc_and;
 
-	return param;
-}
+	// Inherent operation, nothing to write back
+	return false;}
 
 /// SBC: Subtract with carry
-static uint8_t m68op_SBC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_SBC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc - param - (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
+	uint16_t result = ctx->reg_acc - *param - (ctx->reg_ccr & M68_CCR_C ? 1 : 0);
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, *param, result, CARRY_SUB);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// SEC: Set carry flag
-static uint8_t m68op_SEC(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_SEC(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_C, 1);
-	return param;	// inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// SEI: Set interrupt mask flag (disable interrupts)
-static uint8_t m68op_SEI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_SEI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_I, 1);
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// STA: Store accumulator
-static uint8_t m68op_STA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_STA(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, param, ctx->reg_acc, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_acc, *param, ctx->reg_acc, CARRY_UNDEFINED);
 
-	return ctx->reg_acc;	// store A in {param}
+	// Accumulator is written to memory
+	*param = ctx->reg_acc;
+	return true;
 }
 
 /// STOP: Enable IRQs, stop oscillator
-static uint8_t m68op_STOP(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_STOP(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_I, 0);
 	ctx->is_stopped = true;
-	return param; // inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// STX: Store X register
-static uint8_t m68op_STX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_STX(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_x, param, ctx->reg_x, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, ctx->reg_x, *param, ctx->reg_x, CARRY_UNDEFINED);
 
-	return ctx->reg_acc;	// store A in {param}
+	// X register is written to memory
+	*param = ctx->reg_x;
+	return true;
 }
 
 /// SUB: Subtract
-static uint8_t m68op_SUB(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_SUB(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	uint16_t result = ctx->reg_acc - param;
+	uint16_t result = ctx->reg_acc - *param;
 
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, param, result, CARRY_SUB);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z | M68_CCR_C, ctx->reg_acc, *param, result, CARRY_SUB);
 	ctx->reg_acc = result;
 
-	// ACC is always the affected register
-	return param;
+	// Don't write back, affects ACC and flags only
+	return false;
 }
 
 /// SWI: Software Interrupt
-static uint8_t m68op_SWI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_SWI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	// TODO Lift this code for use by IRQ?
 	// PC will already have been advanced by the emulation loop
@@ -736,37 +776,46 @@ static uint8_t m68op_SWI(M68_CTX *ctx, const uint8_t opcode, const uint8_t param
 	vector = (uint16_t)ctx->read_mem(ctx, 0xFFFC & ctx->pc_and) << 8;
 	vector |= ctx->read_mem(ctx, 0xFFFD & ctx->pc_and);
 	ctx->pc_next = vector;
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// TAX: Transfer A to X
-static uint8_t m68op_TAX(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_TAX(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	ctx->reg_x = ctx->reg_acc;
-	return param;	// inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// TST: Test if negative or zero
-static uint8_t m68op_TST(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_TST(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	update_flags(ctx, M68_CCR_N | M68_CCR_Z, 0, 0, param, CARRY_UNDEFINED);
+	update_flags(ctx, M68_CCR_N | M68_CCR_Z, 0, 0, *param, CARRY_UNDEFINED);
 
 	// Contents of the tested register or memory location are left unaltered.
-	return param;
+	return false;
 }
 
 /// TXA: Transfer X to ACC
-static uint8_t m68op_TXA(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_TXA(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	ctx->reg_acc = ctx->reg_x;
-	return param;	// inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 /// WAIT: Wait for interrupt. Like STOP, but leaves peripherals running.
-static uint8_t m68op_WAIT(M68_CTX *ctx, const uint8_t opcode, const uint8_t param)
+static bool m68op_WAIT(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
 	force_flags(ctx, M68_CCR_I, 0);
 	ctx->is_waiting = true;
-	return param; // inherent
+
+	// Inherent operation, nothing to write back
+	return false;
 }
 
 

@@ -10,9 +10,9 @@ typedef enum {
 
 struct M68_CTX;
 
-typedef uint8_t (*M68_READMEM_F)  (const struct M68_CTX *ctx, const uint16_t addr);
-typedef void    (*M68_WRITEMEM_F) (const struct M68_CTX *ctx, const uint16_t addr, const uint8_t data);
-typedef uint8_t (*M68_OPDECODE_F) (const struct M68_CTX *ctx, const uint8_t value);
+typedef uint8_t (*M68_READMEM_F)  (struct M68_CTX *ctx, const uint16_t addr);
+typedef void    (*M68_WRITEMEM_F) (struct M68_CTX *ctx, const uint16_t addr, const uint8_t data);
+typedef uint8_t (*M68_OPDECODE_F) (struct M68_CTX *ctx, const uint8_t value);
 
 
 /**
@@ -34,6 +34,7 @@ typedef struct M68_CTX {
 	M68_READMEM_F	read_mem;				///< Memory read callback
 	M68_WRITEMEM_F	write_mem;				///< Memory write callback
 	M68_OPDECODE_F	opdecode;				///< Opcode decode function, or NULL
+	bool			trace;
 } M68_CTX;
 
 
