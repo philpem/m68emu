@@ -30,6 +30,7 @@ typedef struct M68_OPTABLE_ENT {
 	char *			mnem;		/* instruction mnemonic */
 	M68_AMODE		amode;		/* addressing mode */
 	uint8_t			cycles;		/* number of cycles to execute */
+	bool			write_only;	/* is write-only?  only supported for direct, extended and indexed */
 	bool (*opfunc)(M68_CTX *ctx, const uint8_t opcode, uint8_t *param);	/* opcode exec function */
 } M68_OPTABLE_ENT;
 

@@ -92,11 +92,12 @@ class AddressingMode(Enum):
 
 
 class Instruction:
-    def __init__(self, opcode, mnemonic, addressing_mode, cycles):
+    def __init__(self, opcode, mnemonic, addressing_mode, cycles, write_only):
         self.opcode = opcode
         self.mnemonic = mnemonic
         self.addressing_mode = addressing_mode
         self.cycles = cycles
+        self.write_only = write_only
 
     def __repr__(self):
         return "<Instruction '%s', op=%02X, amode=%s cyc=%d>" % (self.mnemonic, self.opcode, self.addressing_mode)
@@ -148,12 +149,19 @@ with open(g_filename, newline='') as csvfile:
 
         cycles = int(row[3])
 
+        if row[4] not in (0,1,'0','1'):
+            sys.exit("Opcode 0x%02X has invalid write-only flag" % opcode)
+        if row[4] in (1, '1'):
+            write_only = "true"
+        else:
+            write_only = "false"
+
         # make sure opcodes aren't duplicated
         if op_table[opcode] is not None:
             sys.exit("Opcode duplicated: 0x%02X" % opcode)
 
         # into the table it goes
-        op_table[opcode] = Instruction(opcode, mnemonic, addr_mode, cycles)
+        op_table[opcode] = Instruction(opcode, mnemonic, addr_mode, cycles, write_only)
 
 
 # -- function prototypes
@@ -193,8 +201,8 @@ if g_outmode == 'optable':
     print(f"M68_OPTABLE_ENT {g_prefix}_optable[256] = {{")
     for opcode in op_table:
         if opcode is None:
-            print("\t{ \"ILLEGAL\", AMODE_ILLEGAL, 0, NULL },")
+            print("\t{ \"ILLEGAL\", AMODE_ILLEGAL, 0, 0, NULL },")
         else:
             fname = f"m68op_{opcode.root_mnemonic()}"
-            print(f"\t{{ \"{opcode.mnemonic}\", {opcode.addressing_mode.to_c_amode()}, {opcode.cycles}, &{fname} }},")
+            print(f"\t{{ \"{opcode.mnemonic}\", {opcode.addressing_mode.to_c_amode()}, {opcode.cycles}, {opcode.write_only}, &{fname} }},")
     print("};")

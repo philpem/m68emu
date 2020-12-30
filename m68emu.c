@@ -91,7 +91,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 		case AMODE_DIRECT:
 			// Direct addressing: parameter is an address in zero page
 			dirPtr = ctx->read_mem(ctx, ctx->pc_next++);
-			opParam = ctx->read_mem(ctx, dirPtr);
+			if (!opcode->write_only) {
+				opParam = ctx->read_mem(ctx, dirPtr);
+			}
 			break;
 
 		case AMODE_DIRECT_JUMP:
@@ -115,7 +117,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			// Extended addressing: parameter is a 16-bit address
 			dirPtr = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) << 8;
 			dirPtr |= ctx->read_mem(ctx, ctx->pc_next++);
-			opParam = ctx->read_mem(ctx, dirPtr);
+			if (!opcode->write_only) {
+				opParam = ctx->read_mem(ctx, dirPtr);
+			}
 			break;
 
 		case AMODE_EXTENDED_JUMP:
@@ -133,7 +137,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 		case AMODE_INDEXED0:
 			// Indexed with no offset. Take the X register as an address.
 			dirPtr = ctx->reg_x;
-			opParam = ctx->read_mem(ctx, dirPtr);
+			if (!opcode->write_only) {
+				opParam = ctx->read_mem(ctx, dirPtr);
+			}
 			break;
 
 		case AMODE_INDEXED0_JUMP:
@@ -145,7 +151,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 		case AMODE_INDEXED1:
 			// Indexed with 1-byte offset. Add X and offset.
 			dirPtr = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) + ctx->reg_x;
-			opParam = ctx->read_mem(ctx, dirPtr);
+			if (!opcode->write_only) {
+				opParam = ctx->read_mem(ctx, dirPtr);
+			}
 			break;
 
 		case AMODE_INDEXED1_JUMP:
@@ -159,7 +167,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			dirPtr = (uint16_t)ctx->read_mem(ctx, ctx->pc_next++) << 8;
 			dirPtr |= ctx->read_mem(ctx, ctx->pc_next++);
 			dirPtr += ctx->reg_x;
-			opParam = ctx->read_mem(ctx, dirPtr);
+			if (!opcode->write_only) {
+				opParam = ctx->read_mem(ctx, dirPtr);
+			}
 			break;
 
 		case AMODE_INDEXED2_JUMP:
