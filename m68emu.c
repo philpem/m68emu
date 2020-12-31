@@ -245,7 +245,7 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 			// Relative addressing: signed relative branch or jump.
 			//
 			// If the opfunc returned true, take the jump.
-			if (opParam) {
+			if (opResult) {
 				ctx->pc_next = opNextPC & ctx->pc_and;
 			}
 			break;
