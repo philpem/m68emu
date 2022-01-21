@@ -1,23 +1,23 @@
 
 # M68EMU
-*A `Motorola 68HC05` CPU Core Emulator.*
+*A `Motorola 68HC05` CPU Core Emulator.*
 
-This is a noddy little cycle-counting emulation of the `68HC05` CPU core. <br>
+This is a noddy little cycle-counting emulation of the `68HC05` CPU core. <br>
 It exists because I couldn't find a project that fitted my needs  !
 
 ---
 
 ## Features
 
-- `68HC05` Core Emulation
+- `68HC05` Core Emulation .
 
     + *Without* ***Peripherals***
     + *With* ***Cycle Counting***
 
 
-- Hook based **Memory Access**
+- Hook based **Memory Access** .
 
-- Opcodes with separate **Fetch Hooks**
+- Opcodes with separate **Fetch Hooks** .
 
     *To handle CPU cores with scrambled opcodes.*
 
@@ -40,11 +40,11 @@ It exists because I couldn't find a project that fitted my needs  !
 
 ##### Instructions
 
-Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
+Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 
-- **[`make_empty_optable.py`][Opcodes Empty]** for empty dummy instructions.
+- **[`make_empty_optable.py`][Opcodes Empty]** for empty dummy instructions.
 
-- **[`makeoptab.py`][Opcodes Full]** for pre-generated opcodes.
+- **[`makeoptab.py`][Opcodes Full]** for pre - generated opcodes.
 
 <br>
 <br>
@@ -65,7 +65,7 @@ Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 
 1. **[Download]** or **Clone** the repository.
 
-2. Navigate to the **[`Source`][Source]** folder.
+2. Navigate to the **[`/Source/`][Source]** folder.
 
 3. Build the program with **Make** command.
 
