@@ -1,11 +1,13 @@
 
-# M68EMU
-*A `Motorola 68HC05` CPU Core Emulator.*
+# M68EMU ![Badge C] ![Badge Python]
+*A [`Motorola 68HC05`][CPU] CPU Core Emulator.*
 
 This is a noddy little cycle-counting emulation of the `68HC05` CPU core. <br>
 It exists because I couldn't find a project that fitted my needs  !
 
 ---
+
+<br>
 
 ## Features
 
@@ -21,24 +23,25 @@ It exists because I couldn't find a project that fitted my needs  !
 
     *To handle CPU cores with scrambled opcodes.*
 
----
+<br>
 
-## Building
+---
 
 <br>
 
-#### Opcodes
+## Opcodes
 
-##### Requirements
+### Requirements
 
 - **[Python]**
 
     ```sh
     sudo apt install python3
     ```
+
 <br>
 
-##### Instructions
+### Building
 
 Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 
@@ -47,11 +50,14 @@ Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 - **[`makeoptab.py`][Opcodes Full]** for pre - generated opcodes.
 
 <br>
+
+---
+
 <br>
 
-#### Emulator
+## Emulator
 
-##### Requirements
+### Requirements
 
 - **[Make]**
 
@@ -61,7 +67,7 @@ Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 
 <br>
 
-##### Instructions
+### Building
 
 1. **[Download]** or **Clone** the repository.
 
@@ -72,10 +78,7 @@ Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
     ```sh
     make
     ```
-
-
-
-
+    
 
 <!----------------------------------------------------------------------------->
 
@@ -88,3 +91,8 @@ Create the **[`opcodes_m68hc05.csv`][Opcodes Table]** file with :
 [Make]: https://www.gnu.org/software/make/
 [Download]: https://github.com/philpem/m68emu/archive/refs/heads/master.zip
 [Python]: https://www.python.org/
+
+[CPU]: https://en.wikipedia.org/wiki/Motorola_68HC05
+
+[Badge C]: https://img.shields.io/badge/C-00599C?style=for-the-badge
+[Badge Python]: https://img.shields.io/badge/Python-14354C?style=for-the-badge&logo=python&logoColor=white
