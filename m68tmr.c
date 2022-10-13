@@ -20,7 +20,7 @@ void tmr_init(M68TMR_CTX* ctx){
     (0<<TCR_INTREQ)|
     (1<<TCR_INTDIS);
   ctx->tdr=0xFF;
-  ctx->prescaler=0x7F;    
+  ctx->prescaler=0x7F;
 }
 
 bool tmr_exec(M68TMR_CTX* ctx, uint64_t cycles,bool pin){
@@ -36,7 +36,6 @@ bool tmr_exec(M68TMR_CTX* ctx, uint64_t cycles,bool pin){
     assert(1==2);//not implemented yet
   }
 
-
   ctx->prescaler=(ctx->prescaler-count)&0x7F;
   uint8_t n=count>>preshift;
   if (count>ctx->prescaler){
@@ -44,19 +43,12 @@ bool tmr_exec(M68TMR_CTX* ctx, uint64_t cycles,bool pin){
   }
   bool interrupt= n>ctx->tdr;
   ctx->tdr=(ctx->tdr-n  )&0xFF;
-
-  //printf("%lu cycles now %d:%d\n",cycles,ctx->tdr,ctx->prescaler); 
   
   if (interrupt){
     ctx->tcr|=1<<TCR_INTREQ;
   }
-
-  //printf("mask is %d\n",ctx->tcr& (1<<TCR_INTDIS));
   
-  return interrupt & ( (ctx->tcr& (1<<TCR_INTDIS))==0) ;
-   
-
-  
+  return interrupt & ( (ctx->tcr& (1<<TCR_INTDIS))==0);
 }
 
 
@@ -77,11 +69,9 @@ void tmr_write(M68TMR_CTX* ctx,uint16_t addr,uint8_t val){
   switch (addr){
   case ADDR_TIMERDATA:
     ctx->tdr=val;
-    //printf("timer cnt to %x\n",val);
     break;
   case ADDR_TIMERCTRL:
     ctx->tcr=val;
-    //printf("control to %x\n",val);
     break;
   default:
     break;
