@@ -19,6 +19,12 @@ void m68_init(M68_CTX *ctx, const M68_CPUTYPE cpuType)
 			// PC is 13 bits too
 			ctx->pc_and = 0x1FFF;
 			break;
+	         case M68_CPU_HD6805V1:
+                   ctx->pc_and=0x0FFF;
+                   // Address range: 0xC0 to 0xFF ?
+                   ctx->sp_and = 0x003F;
+                   ctx->sp_or  = 0x00C0;
+                   break;
 
 		default:
 			assert(0);
@@ -26,7 +32,7 @@ void m68_init(M68_CTX *ctx, const M68_CPUTYPE cpuType)
 
 	ctx->cpuType = cpuType;
 	ctx->trace = false;
-
+        ctx->pending_interrupts=0;
 	m68_reset(ctx);
 }
 
@@ -55,6 +61,14 @@ void m68_reset(M68_CTX *ctx)
 }
 
 
+void m68_set_interrupt_line(M68_CTX * ctx,M68_INTERRUPT i){
+  if (i==M68_INT_IRQ){
+    ctx->irq=true;
+  }
+  ctx->pending_interrupts|=(1<<i);
+}
+
+
 uint64_t m68_exec_cycle(M68_CTX *ctx)
 {
 	uint8_t opval;
@@ -63,6 +77,19 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	// Save current program counter
 	ctx->reg_pc = ctx->pc_next;
 
+
+        if (ctx->pending_interrupts && get_flag(ctx,M68_CCR_I)==0){
+          if (ctx->pending_interrupts& (1<<M68_INT_IRQ)){
+            ctx->pending_interrupts&=~(1<<M68_INT_IRQ);
+            jump_to_vector(ctx,_M68_INT_VECTOR);
+          }else if (ctx->pending_interrupts& (1<<M68_INT_TIMER1)){
+            ctx->pending_interrupts&=~(1<<M68_INT_TIMER1);
+            jump_to_vector(ctx,_M68_TMR1_VECTOR);
+          }
+          return 11;
+
+        }
+
 	// Fetch and decode opcode
 	opval = ctx->read_mem(ctx, ctx->pc_next++);
 	if (ctx->opdecode != NULL) {
@@ -70,6 +97,7 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	}
 	switch (ctx->cpuType) {
 		case M68_CPU_HC05C4:
+		case M68_CPU_HD6805V1:
 			opcode = &m68hc05_optable[opval];
 			break;
 		default:
@@ -203,6 +231,9 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 
 		case AMODE_ILLEGAL:
 		case AMODE_MAX:
+                  printf("ILLEGAL M68 EXEC: pc %04X sp %02X opval %02X mnem '%s' amode %d cycles %d\n",
+                    ctx->reg_pc, ctx->reg_sp, opval, opcode->mnem, opcode->amode, opcode->cycles);
+
 			// Illegal instruction
 			assert(1==2);
 			break;
@@ -283,3 +314,21 @@ uint64_t m68_exec_cycle(M68_CTX *ctx)
 	return opcode->cycles;
 }
 
+
+
+void jump_to_vector(M68_CTX *ctx,uint16_t addr){
+  	push_byte(ctx, ctx->pc_next & 0xFF);
+	push_byte(ctx, ctx->pc_next >> 8);
+	push_byte(ctx, ctx->reg_x);
+	push_byte(ctx, ctx->reg_acc);
+	push_byte(ctx, ctx->reg_ccr);
+
+	// Mask further interrupts
+	force_flags(ctx, M68_CCR_I, 1);
+
+	// Vector fetch
+	uint16_t vector;
+	vector = (uint16_t)ctx->read_mem(ctx, addr & ctx->pc_and) << 8;
+	vector |= ctx->read_mem(ctx, (addr+1) & ctx->pc_and);
+	ctx->pc_next = vector;
+}

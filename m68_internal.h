@@ -41,7 +41,68 @@ extern M68_OPTABLE_ENT m68hc05_optable[256];
 static const uint16_t _M68_RESET_VECTOR = 0xFFFE;
 static const uint16_t _M68_SWI_VECTOR   = 0xFFFC;
 static const uint16_t _M68_INT_VECTOR   = 0xFFFA;
+static const uint16_t _M68_TMR1_VECTOR  = 0xFFF8;
 
 // TODO - need to have an m68_int function which allows vector address to be passed at runtime
+
+void jump_to_vector(M68_CTX *ctx,uint16_t addr);
+
+
+
+/**
+ * Force one or more flag bits to a given state
+ *
+ * @param	ctx			Emulation context
+ * @param	ccr_bits	CCR bit map (OR of M68_CCR_x constants)
+ * @param	state		State to set -- true for set, false for clear
+ */
+static inline void force_flags(M68_CTX *ctx, const uint8_t ccr_bits, const bool state)
+{
+	if (state) {
+		ctx->reg_ccr |= ccr_bits;
+	} else {
+		ctx->reg_ccr &= ~ccr_bits;
+	}
+
+	// Force CCR top 3 bits to 1
+	ctx->reg_ccr |= 0xE0;
+}
+
+/**
+ * Get the state of a CCR flag bit
+ *
+ * @param	ctx			Emulation context
+ * @param	ccr_bits	CCR bit (M68_CCR_x constant)
+ */
+static inline bool get_flag(M68_CTX *ctx, const uint8_t ccr_bit)
+{
+	return (ctx->reg_ccr & ccr_bit) ? true : false;
+}
+
+/**
+ * Push a byte onto the stack
+ *
+ * @param	ctx			Emulation context
+ * @param	value		Byte to PUSH
+ */
+static inline void push_byte(M68_CTX *ctx, const uint8_t value)
+{
+	ctx->write_mem(ctx, ctx->reg_sp, value);
+	ctx->reg_sp = ((ctx->reg_sp - 1) & ctx->sp_and) | ctx->sp_or;
+}
+
+/**
+ * Pop a byte off of the stack
+ *
+ * @param	ctx			Emulation context
+ * @return	Byte popped off of the stack
+ */
+static inline uint8_t pop_byte(M68_CTX *ctx)
+{
+	ctx->reg_sp = ((ctx->reg_sp + 1) & ctx->sp_and) | ctx->sp_or;
+	return ctx->read_mem(ctx, ctx->reg_sp);
+}
+
+
 
 #endif // M68_INTERNAL_H
