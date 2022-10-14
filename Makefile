@@ -2,10 +2,14 @@
 
 CFLAGS += -g -ggdb -Wall
 
-all:	m68em
+all:	m68em m68em_tmr
 
 m68em:	m68_ops.o m68emu.o m68test.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+m68em_tmr:m68_ops.o m68emu.o m68test.o m68tmr.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
 
 m68_ops.o:	m68_optab_hc05.h m68_internal.h m68emu.h
 m68emu.o:	m68_internal.h m68emu.h
