@@ -116,60 +116,6 @@ static inline void update_flags(M68_CTX *ctx, const uint8_t ccr_bits, const uint
 	ctx->reg_ccr |= 0xE0;
 }
 
-/**
- * Force one or more flag bits to a given state
- *
- * @param	ctx			Emulation context
- * @param	ccr_bits	CCR bit map (OR of M68_CCR_x constants)
- * @param	state		State to set -- true for set, false for clear
- */
-static inline void force_flags(M68_CTX *ctx, const uint8_t ccr_bits, const bool state)
-{
-	if (state) {
-		ctx->reg_ccr |= ccr_bits;
-	} else {
-		ctx->reg_ccr &= ~ccr_bits;
-	}
-
-	// Force CCR top 3 bits to 1
-	ctx->reg_ccr |= 0xE0;
-}
-
-/**
- * Get the state of a CCR flag bit
- *
- * @param	ctx			Emulation context
- * @param	ccr_bits	CCR bit (M68_CCR_x constant)
- */
-static inline bool get_flag(M68_CTX *ctx, const uint8_t ccr_bit)
-{
-	return (ctx->reg_ccr & ccr_bit) ? true : false;
-}
-
-/**
- * Push a byte onto the stack
- *
- * @param	ctx			Emulation context
- * @param	value		Byte to PUSH
- */
-static inline void push_byte(M68_CTX *ctx, const uint8_t value)
-{
-	ctx->write_mem(ctx, ctx->reg_sp, value);
-	ctx->reg_sp = ((ctx->reg_sp - 1) & ctx->sp_and) | ctx->sp_or;
-}
-
-/**
- * Pop a byte off of the stack
- *
- * @param	ctx			Emulation context
- * @return	Byte popped off of the stack
- */
-static inline uint8_t pop_byte(M68_CTX *ctx)
-{
-	ctx->reg_sp = ((ctx->reg_sp + 1) & ctx->sp_and) | ctx->sp_or;
-	return ctx->read_mem(ctx, ctx->reg_sp);
-}
-
 
 /****************************************************************************
  * OPCODE IMPLEMENTATION
@@ -760,23 +706,9 @@ static bool m68op_SUB(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 /// SWI: Software Interrupt
 static bool m68op_SWI(M68_CTX *ctx, const uint8_t opcode, uint8_t *param)
 {
-	// TODO Lift this code for use by IRQ?
 	// PC will already have been advanced by the emulation loop
-	push_byte(ctx, ctx->pc_next & 0xFF);
-	push_byte(ctx, ctx->pc_next >> 8);
-	push_byte(ctx, ctx->reg_x);
-	push_byte(ctx, ctx->reg_acc);
-	push_byte(ctx, ctx->reg_ccr);
 
-	// Mask further interrupts
-	force_flags(ctx, M68_CCR_I, 1);
-
-	// Vector fetch
-	uint16_t vector;
-	vector = (uint16_t)ctx->read_mem(ctx, 0xFFFC & ctx->pc_and) << 8;
-	vector |= ctx->read_mem(ctx, 0xFFFD & ctx->pc_and);
-	ctx->pc_next = vector;
-
+        jump_to_vector(ctx,_M68_SWI_VECTOR);
 	// Inherent operation, nothing to write back
 	return false;
 }
