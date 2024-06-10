@@ -5,9 +5,9 @@
 #include <stdbool.h>
 
 typedef struct M68TRM_CTX {
-  uint8_t tcr;
-  uint8_t tdr;
-  uint8_t prescaler;
+	uint8_t tcr;
+	uint8_t tdr;
+	uint8_t prescaler;
 } M68TMR_CTX;
 
 
