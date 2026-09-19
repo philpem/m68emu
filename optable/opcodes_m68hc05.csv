@@ -87,7 +87,7 @@
 "55",,,,
 "56","RORX","inh_x",3,0
 "57","ASRX","inh_x",3,0
-"58","ASLX_LSLX","inh_a",3,0
+"58","ASLX_LSLX","inh_x",3,0
 "59","ROLX","inh_x",3,0
 "5A","DECX","inh_x",3,0
 "5B",,,,
